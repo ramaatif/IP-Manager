@@ -1,42 +1,42 @@
-using Microsoft.AspNetCore.Mvc; 
-using CountriesApi.Models; 
+
+using Microsoft.AspNetCore.Mvc;
+using CountriesApi.Models;
 using System.Linq;
-using System.Collections.Concurrent; 
-using static CountriesApi.Models.InMemoryStore;  
+using System.Collections.Concurrent;
+using static CountriesApi.Models.InMemoryStore;
 using Microsoft.Extensions.Logging;
-using System.ComponentModel.DataAnnotations; 
+using System.ComponentModel.DataAnnotations;
 
 namespace CountriesApi.Controllers
 {
-    [ApiController] 
-    [Route("api/[controller]")] 
-    public class CountriesController : ControllerBase 
+    [ApiController]
+    [Route("api/[controller]")]
+    public class CountriesController : ControllerBase
     {
         private readonly ILogger<CountriesController> _logger;
         
 
         public CountriesController(ILogger<CountriesController> logger)
         {
-            _logger = logger; 
+            _logger = logger;
         }
-
 
         public class CountryCodeRequest
         {
-            [Required(ErrorMessage = "Country code is required.")] 
+            [Required(ErrorMessage = "Country code is required.")]
             public string Code { get; set; }
         }
 
-        [HttpPost("block")] 
+        [HttpPost("block")]
         public IActionResult BlockCountry([FromBody] CountryCodeRequest countryCode)
         {
             if (!ModelState.IsValid)
             {
                 _logger.LogWarning("Model state is invalid for BlockCountry request.");
-                return BadRequest(ModelState); 
+                return BadRequest(ModelState);
             }
 
-            string CountryCode = countryCode.Code.ToUpper(); // توحيد كود الدولة لحروف كبيرة
+            string CountryCode = countryCode.Code.ToUpper();
 
             if (BlockedCountries.TryAdd(CountryCode, new Country { Code = CountryCode, DurationMinutes = -1 }))
             {
@@ -50,25 +50,25 @@ namespace CountriesApi.Controllers
             }
         }
 
-        [HttpDelete("block/{countryCode}")] 
-                public IActionResult DeleteBlockedCountry(string countryCode)
+        [HttpDelete("block/{countryCode}")]
+        public IActionResult DeleteBlockedCountry(string countryCode)
         {
-            countryCode = countryCode.ToUpper(); 
+            countryCode = countryCode.ToUpper();
 
             if (BlockedCountries.TryRemove(countryCode, out _))
             {
                 _logger.LogInformation($"Country {countryCode} unblocked successfully.");
-                return Ok($"Country {countryCode} Deleted successfully.");
+                return Ok(new { Message = $"Country {countryCode} unblocked successfully." });
             }
             else
             {
                 _logger.LogWarning($"Attempt to unblock non-blocked country: {countryCode}");
-                return NotFound($"Country {countryCode} is not currently blocked.");
+                return NotFound(new { Message = $"Country {countryCode} is not currently blocked." });
             }
         }
 
-        [HttpGet("blocked")]ة
-        public IActionResult GetBlockedCountries()
+        [HttpGet("blocked")]
+        public IActionResult GetBlockedCountries([FromQuery] SearchParameters parameters)
         {
             var query = BlockedCountries.Values.AsQueryable();
 
@@ -84,7 +84,7 @@ namespace CountriesApi.Controllers
             {
                 query = parameters.SortBy.ToLower() switch
                 {
-                    "code" => parameters.SortDescending 
+                    "code" => parameters.SortDescending
                         ? query.OrderByDescending(c => c.Code)
                         : query.OrderBy(c => c.Code),
                     "duration" => parameters.SortDescending
@@ -232,8 +232,8 @@ namespace CountriesApi.Controllers
             if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
             {
                 var searchTerm = parameters.SearchTerm.ToUpper();
-                query = query.Where(l => 
-                    l.CountryCode.Contains(searchTerm) || 
+                query = query.Where(l =>
+                    l.CountryCode.Contains(searchTerm) ||
                     l.IPAddress.Contains(searchTerm) ||
                     l.UserAgent.Contains(searchTerm));
             }
