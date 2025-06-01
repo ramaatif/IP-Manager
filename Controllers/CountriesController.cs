@@ -40,19 +40,17 @@ namespace CountriesApi.Controllers
                 return BadRequest(ModelState); // نرجع 400 Bad Request مع تفاصيل أخطاء التحقق
             }
 
-
-
             string CountryCode = countryCode.Code.ToUpper(); // توحيد كود الدولة لحروف كبيرة
 
-            if (BlockedCountries.TryAdd(CountryCode, new Country { Code = CountryCode,DurationMinutes=-1}))
+            if (BlockedCountries.TryAdd(CountryCode, new Country { Code = CountryCode, DurationMinutes = -1 }))
             {
                 _logger.LogInformation($"Country {CountryCode} blocked successfully.");
-                return Ok($"Country {countryCode.Code} blocked successfully."); // 200 OK
+                return Ok(new { Message = $"Country {countryCode.Code} blocked successfully." });
             }
             else
             {
                 _logger.LogWarning($"Attempt to block already blocked country: {countryCode.Code}");
-                return Conflict($"Country {countryCode.Code} is already blocked."); // 409 Conflict
+                return Conflict(new { Message = $"Country {countryCode.Code} is already blocked." });
             }
         }
 
@@ -64,24 +62,64 @@ namespace CountriesApi.Controllers
             if (BlockedCountries.TryRemove(countryCode, out _)) // محاولة حذف الدولة
             {
                 _logger.LogInformation($"Country {countryCode} unblocked successfully.");
-                return Ok($"Country {countryCode} Deleted successfully."); // 204 No Content
+                return Ok(new { Message = $"Country {countryCode} unblocked successfully." });
             }
             else
             {
                 _logger.LogWarning($"Attempt to unblock non-blocked country: {countryCode}");
-                return NotFound($"Country {countryCode} is not currently blocked."); // 404 Not Found
+                return NotFound(new { Message = $"Country {countryCode} is not currently blocked." });
             }
         }
 
         [HttpGet("blocked")] // طلب GET لجلب كل الدول المحظورة
-        public IActionResult GetBlockedCountries()
+        public IActionResult GetBlockedCountries([FromQuery] SearchParameters parameters)
         {
-            var blockedCountriesList = BlockedCountries.Values.ToList(); // جلب الدول من المخزن
-            _logger.LogInformation($"Retrieved {blockedCountriesList.Count} blocked countries.");
-            return Ok(blockedCountriesList); // 200 OK مع قائمة الدول
+            var query = BlockedCountries.Values.AsQueryable();
+
+            // Apply search
+            if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+            {
+                var searchTerm = parameters.SearchTerm.ToUpper();
+                query = query.Where(c => c.Code.Contains(searchTerm));
+            }
+
+            // Apply sorting
+            if (!string.IsNullOrWhiteSpace(parameters.SortBy))
+            {
+                query = parameters.SortBy.ToLower() switch
+                {
+                    "code" => parameters.SortDescending 
+                        ? query.OrderByDescending(c => c.Code)
+                        : query.OrderBy(c => c.Code),
+                    "duration" => parameters.SortDescending
+                        ? query.OrderByDescending(c => c.DurationMinutes)
+                        : query.OrderBy(c => c.DurationMinutes),
+                    "expiration" => parameters.SortDescending
+                        ? query.OrderByDescending(c => c.ExpirationTime)
+                        : query.OrderBy(c => c.ExpirationTime),
+                    _ => query
+                };
+            }
+
+            var totalCount = query.Count();
+            var totalPages = (int)Math.Ceiling(totalCount / (double)parameters.PageSize);
+
+            var items = query
+                .Skip((parameters.PageNumber - 1) * parameters.PageSize)
+                .Take(parameters.PageSize)
+                .ToList();
+
+            var response = new PaginatedResponse<Country>
+            {
+                Data = items,
+                TotalCount = totalCount,
+                PageNumber = parameters.PageNumber,
+                PageSize = parameters.PageSize,
+                TotalPages = totalPages
+            };
+
+            return Ok(response);
         }
-
-
 
         [HttpGet("ip/lookup")]
         [HttpGet("ip/lookup/{ipAddress}")]
@@ -135,23 +173,20 @@ namespace CountriesApi.Controllers
             }
         }
 
+        [HttpGet("ip/check-block")]
+        public async Task<IActionResult> CheckIfIpBlocked()
+        {
+            string ipAddress = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
 
-        
+            if (string.IsNullOrWhiteSpace(ipAddress))
+                ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
 
-[HttpGet("ip/check-block")]
-public async Task<IActionResult> CheckIfIpBlocked()
-{
-    string ipAddress = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            string userAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault() ?? "Unknown";
 
-    if (string.IsNullOrWhiteSpace(ipAddress))
-        ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-
-    string userAgent = HttpContext.Request.Headers["User-Agent"].FirstOrDefault() ?? "Unknown";
-
-    try
-    {
-        var client = new HttpClient();
-          var request = new HttpRequestMessage(HttpMethod.Get, $"https://ipapi.co/{ipAddress}/json");
+            try
+            {
+                var client = new HttpClient();
+                var request = new HttpRequestMessage(HttpMethod.Get, $"https://ipapi.co/{ipAddress}/json");
                 request.Headers.Add("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
                 request.Headers.Add("accept-language", "en-US,en;q=0.9");
                 request.Headers.Add("priority", "u=0, i");
@@ -166,91 +201,117 @@ public async Task<IActionResult> CheckIfIpBlocked()
                 request.Headers.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36");
                 var response = await client.SendAsync(request);
 
-        if (!response.IsSuccessStatusCode)
-            return StatusCode(500, "Failed to retrieve IP info");
+                if (!response.IsSuccessStatusCode)
+                    return StatusCode(500, "Failed to retrieve IP info");
 
-        var content = await response.Content.ReadAsStringAsync();
-        var json = System.Text.Json.JsonDocument.Parse(content);
-        string countryCode = json.RootElement.GetProperty("country_code").GetString()?.ToUpper() ?? "??";
+                var content = await response.Content.ReadAsStringAsync();
+                var json = System.Text.Json.JsonDocument.Parse(content);
+                string countryCode = json.RootElement.GetProperty("country_code").GetString()?.ToUpper() ?? "??";
 
                 bool isBlocked = BlockedCountries.ContainsKey(countryCode);
 
-        // Log the attempt
-        LogBlockedAttempt(ipAddress!, countryCode, isBlocked, userAgent);
+                // Log the attempt
+                LogBlockedAttempt(ipAddress!, countryCode, isBlocked, userAgent);
 
-        return Ok(new
+                return Ok(new
+                {
+                    IPAddress = ipAddress,
+                    CountryCode = countryCode,
+                    IsBlocked = isBlocked
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while checking IP block status");
+                return StatusCode(500, "Internal server error");
+            }
+        }
+
+        [HttpGet("logs/blocked-attempts")]
+        public IActionResult GetBlockedAttempts([FromQuery] SearchParameters parameters)
         {
-            IPAddress = ipAddress,
-            CountryCode = countryCode,
-            IsBlocked = isBlocked
-        });
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "Error while checking IP block status");
-        return StatusCode(500, "Internal server error");
-    }
-}
+            var query = BlockedAttemptsLog.Values.AsQueryable();
 
-[HttpGet("logs/blocked-attempts")]
-public IActionResult GetBlockedAttempts([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
-{
-    var allLogs = BlockedAttemptsLog.Values
-        .OrderByDescending(log => log.Timestamp)
-        .Skip((page - 1) * pageSize)
-        .Take(pageSize)
-        .ToList();
+            // Apply search
+            if (!string.IsNullOrWhiteSpace(parameters.SearchTerm))
+            {
+                var searchTerm = parameters.SearchTerm.ToUpper();
+                query = query.Where(l => 
+                    l.CountryCode.Contains(searchTerm) || 
+                    l.IPAddress.Contains(searchTerm) ||
+                    l.UserAgent.Contains(searchTerm));
+            }
 
-    return Ok(new
-    {
-        Total = BlockedAttemptsLog.Count,
-        Page = page,
-        PageSize = pageSize,
-        Data = allLogs
-    });
-}
+            // Apply sorting
+            if (!string.IsNullOrWhiteSpace(parameters.SortBy))
+            {
+                query = parameters.SortBy.ToLower() switch
+                {
+                    "timestamp" => parameters.SortDescending
+                        ? query.OrderByDescending(l => l.Timestamp)
+                        : query.OrderBy(l => l.Timestamp),
+                    "countrycode" => parameters.SortDescending
+                        ? query.OrderByDescending(l => l.CountryCode)
+                        : query.OrderBy(l => l.CountryCode),
+                    "ipaddress" => parameters.SortDescending
+                        ? query.OrderByDescending(l => l.IPAddress)
+                        : query.OrderBy(l => l.IPAddress),
+                    _ => query
+                };
+            }
+            else
+            {
+                // Default sorting by timestamp descending
+                query = query.OrderByDescending(l => l.Timestamp);
+            }
 
+            var totalCount = query.Count();
+            var totalPages = (int)Math.Ceiling(totalCount / (double)parameters.PageSize);
 
-[HttpPost("temporal-block")]
-public IActionResult TemporarilyBlockCountry([FromBody] Country request)
-{
-  if (string.IsNullOrWhiteSpace(request.Code))
-        return BadRequest("Country code is required.");
+            var items = query
+                .Skip((parameters.PageNumber - 1) * parameters.PageSize)
+                .Take(parameters.PageSize)
+                .ToList();
 
+            var response = new PaginatedResponse<LogEntry>
+            {
+                Data = items,
+                TotalCount = totalCount,
+                PageNumber = parameters.PageNumber,
+                PageSize = parameters.PageSize,
+                TotalPages = totalPages
+            };
 
-    string code = request.Code.ToUpper();
+            return Ok(response);
+        }
 
-    if (BlockedCountries.ContainsKey(code))
-        return Conflict($"Country {code} is already temporarily blocked.");
+        [HttpPost("temporal-block")]
+        public IActionResult TemporarilyBlockCountry([FromBody] Country request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Code))
+                return BadRequest(new { Message = "Country code is required." });
 
+            string code = request.Code.ToUpper();
 
-  if (request.DurationMinutes < 1 || request.DurationMinutes > 1440)
-        return BadRequest("Duration must be between 1 and 1440 minutes.");
+            if (BlockedCountries.ContainsKey(code))
+                return Conflict(new { Message = $"Country {code} is already temporarily blocked." });
 
+            if (request.DurationMinutes < 1 || request.DurationMinutes > 1440)
+                return BadRequest(new { Message = "Duration must be between 1 and 1440 minutes." });
 
             var expirationTime = DateTime.UtcNow.AddMinutes(request.DurationMinutes);
 
+            Country block = new Country
+            {
+                Code = code,
+                DurationMinutes = request.DurationMinutes,
+                ExpirationTime = expirationTime
+            };
 
+            BlockedCountries.TryAdd(code, block);
 
-    Country block = new Country
-    {
-        Code = code,
-        DurationMinutes = request.DurationMinutes,
-        ExpirationTime = expirationTime
-    };
-
-    BlockedCountries.TryAdd(code, block);
-
-    return Ok($"Country {code} is blocked for {request.DurationMinutes} minutes.");
-}
-
-
-
-
-
-
-
-
+            return Ok(new { Message = $"Country {code} is blocked for {request.DurationMinutes} minutes." });
+        }
 
         private void LogBlockedAttempt(string ipAddress, string countryCode, bool isBlocked, string userAgent)
         {
@@ -267,9 +328,5 @@ public IActionResult TemporarilyBlockCountry([FromBody] Country request)
 
             BlockedAttemptsLog.TryAdd(key, log);
         }
-
     }
-
-
-
 }
