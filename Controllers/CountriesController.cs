@@ -1,43 +1,39 @@
-// Controllers/CountriesController.cs
-using Microsoft.AspNetCore.Mvc; // لإضافة ControllerBase و IActionResult (لإرجاع الردود)
+using Microsoft.AspNetCore.Mvc; 
 using CountriesApi.Models; 
-using System.Linq; // لاستخدام LINQ (لعمليات زي الفرز والبحث)
-using System.Collections.Concurrent; // لاستخدام ConcurrentDictionary (المخزن بتاعنا)
-using static CountriesApi.Models.InMemoryStore;  // لاستخدام المخزن بتاعنا مباشرة بدون كتابة InMemoryStore.
+using System.Linq;
+using System.Collections.Concurrent; 
+using static CountriesApi.Models.InMemoryStore;  
 using Microsoft.Extensions.Logging;
-using System.ComponentModel.DataAnnotations; // لإضافة ILogger
+using System.ComponentModel.DataAnnotations; 
 
 namespace CountriesApi.Controllers
 {
-    [ApiController] // يعرف الكلاس كـ API Controller
-    [Route("api/[controller]")] // هذا يحدد المسار الأساسي للـ Endpoints (مثال: /api/countries)
-    public class CountriesController : ControllerBase // Controllers يجب أن ترث من ControllerBase
+    [ApiController] 
+    [Route("api/[controller]")] 
+    public class CountriesController : ControllerBase 
     {
-        // هذا جزء خاص بتسجيل الأحداث (Logging)
         private readonly ILogger<CountriesController> _logger;
         
 
-        // هذا هو الـ Constructor للـ Controller
         public CountriesController(ILogger<CountriesController> logger)
         {
-            _logger = logger; // يتم حقن الـ logger هنا
+            _logger = logger; 
         }
 
-        // هنا تبدأ الـ Endpoints الخاصة بإدارة الدول المحظورة
 
         public class CountryCodeRequest
         {
-            [Required(ErrorMessage = "Country code is required.")] // التأكد أن كود الدولة مطلوب
+            [Required(ErrorMessage = "Country code is required.")] 
             public string Code { get; set; }
         }
 
-        [HttpPost("block")] // طلب POST لإضافة دولة محظورة
+        [HttpPost("block")] 
         public IActionResult BlockCountry([FromBody] CountryCodeRequest countryCode)
         {
             if (!ModelState.IsValid)
             {
                 _logger.LogWarning("Model state is invalid for BlockCountry request.");
-                return BadRequest(ModelState); // نرجع 400 Bad Request مع تفاصيل أخطاء التحقق
+                return BadRequest(ModelState); 
             }
 
 
@@ -56,24 +52,24 @@ namespace CountriesApi.Controllers
             }
         }
 
-        [HttpDelete("block/{countryCode}")] // طلب DELETE لحذف دولة محظورة
-        public IActionResult DeleteBlockedCountry(string countryCode)
+        [HttpDelete("block/{countryCode}")] 
+                public IActionResult DeleteBlockedCountry(string countryCode)
         {
-            countryCode = countryCode.ToUpper(); // توحيد كود الدولة لحروف كبيرة
+            countryCode = countryCode.ToUpper(); 
 
-            if (BlockedCountries.TryRemove(countryCode, out _)) // محاولة حذف الدولة
+            if (BlockedCountries.TryRemove(countryCode, out _))
             {
                 _logger.LogInformation($"Country {countryCode} unblocked successfully.");
-                return Ok($"Country {countryCode} Deleted successfully."); // 204 No Content
+                return Ok($"Country {countryCode} Deleted successfully.");
             }
             else
             {
                 _logger.LogWarning($"Attempt to unblock non-blocked country: {countryCode}");
-                return NotFound($"Country {countryCode} is not currently blocked."); // 404 Not Found
+                return NotFound($"Country {countryCode} is not currently blocked.");
             }
         }
 
-        [HttpGet("blocked")] // طلب GET لجلب كل الدول المحظورة
+        [HttpGet("blocked")]ة
         public IActionResult GetBlockedCountries()
         {
             var blockedCountriesList = BlockedCountries.Values.ToList(); // جلب الدول من المخزن

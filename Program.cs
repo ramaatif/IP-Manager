@@ -1,4 +1,3 @@
-// Program.cs
 
 using System.Collections.Concurrent;
 using CountriesApi.Models;
@@ -23,7 +22,6 @@ builder.Services.AddHostedService<TemporaryBlockCleanupService>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
