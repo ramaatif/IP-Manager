@@ -1,4 +1,4 @@
-# IP Manager API - Job Application Task
+# IP Manager API -  Task
 
 This project was developed as part of a job application task, demonstrating my skills in .NET Core development, API design, and system architecture. The task involved creating a robust API for managing country-based IP blocking and tracking.
 
