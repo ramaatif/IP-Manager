@@ -67,7 +67,7 @@ In implementing this task, I made several technical decisions:
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/IP-Manager.git
+git clone https://github.com/ramaatif/IP-Manager.git
 ```
 
 2. Navigate to the project directory:
